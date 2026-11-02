@@ -14,7 +14,7 @@
 
 > [!WARNING]
 > **本项目包含本地绝对路径、端口与模型名配置。部署前请根据实际环境修改。**
-> 归档里的 `C:\Users\<YourUsername>`、`<STRATA_HOME>`、`<YourHostname>` 都是占位符，不是可直接运行的值。
+> 归档里的 `C:\Users\YOUR_USERNAME`、`STRATA_HOME`、`YOUR_HOSTNAME` 都是占位符，不是可直接运行的值。
 > 所有配置片段都是**摘录**，请合并进你自己的配置文件，不要整文件覆盖。
 
 ---
@@ -39,7 +39,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  DSH Desktop (GUI)                                                    │
-│  http://127.0.0.1:<随机端口>   每次重启都会变，不是固定值              │
+│  http://127.0.0.1:RANDOM_PORT   每次重启都会变，不是固定值             │
 │                                                                       │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  Agent Preset 层                                                 │  │
@@ -56,7 +56,7 @@
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  bili (billion-context)   管理端点 127.0.0.1:18788              │  │
 │  │  · 上下文压缩：maxContextLimit = 90%（131072 × 0.9 ≈ 118K 才动手）│  │
-│  │  · 模型窗口：models.<id>.context = 131072                       │  │
+│  │  · 模型窗口：models.MODEL_ID.context = 131072                   │  │
 │  │  · 上下文观测 / 折叠 / 注入块管理                                 │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
@@ -302,8 +302,8 @@ conversation cache off: not enough free RAM
 ## 部署步骤
 
 1. **装插件**：把 `plugins/maid-local-lite` 与 `plugins/maid-local-memory` 放进 DSH 工作区，在 profile 的 `package.json` 里用 `link:` 指向它们，并把两个包名加进 `dsh.bundle`。
-2. **改配置**：把 `config/cordis.patch.example.yml` 里的 `llm-pi-ai` 与 `meow-memory` 两块合并进你自己的 `~/.dsh/profiles/<profile>/cordis.patch.yml`；把 `config/billion-context.example.json` 合并进 `~/.config/billion-context/billion-context.json`。
-3. **改路径**：`proxy/` 下三个文件里的 `<STRATA_HOME>` 换成你机器上的实际安装路径。
+2. **改配置**：把 `config/cordis.patch.example.yml` 里的 `llm-pi-ai` 与 `meow-memory` 两块合并进你自己的 `~/.dsh/profiles/PROFILE/cordis.patch.yml`；把 `config/billion-context.example.json` 合并进 `~/.config/billion-context/billion-context.json`。
+3. **改路径**：`proxy/` 下三个文件里的 `STRATA_HOME` 换成你机器上的实际安装路径。
 4. **起代理**：双击或 `wscript.exe proxy/start-proxy.vbs`，确认 8090 在听。
 5. **装守护**：把 `guard-proxy.vbs` 的快捷方式丢进 `shell:startup`（目标 `wscript.exe`，参数是 vbs 全路径，工作目录设成 proxy 目录，窗口最小化）。
 6. **重启 DSH**，新建会话选 `maid-local-memory`。

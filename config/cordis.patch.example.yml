@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # DSH profile patch — the two lines that matter for this project.
 #
-# This is a TRIMMED excerpt of a real ~/.dsh/profiles/<profile>/cordis.patch.yml.
+# This is a TRIMMED excerpt of a real ~/.dsh/profiles/PROFILE/cordis.patch.yml.
 # A real file has ~15 top-level entries (ui-*, web, session-log, image-gen, ...);
 # only the ones this project touches are kept here. Do NOT paste this whole file
 # over your own — merge the `llm-pi-ai` block and the `meow-memory` block into

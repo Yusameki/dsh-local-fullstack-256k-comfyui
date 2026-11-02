@@ -14,7 +14,7 @@
 
 > [!WARNING]
 > **This project contains local absolute paths, ports, and model-name configuration. Adjust them to your own environment before deploying.**
-> Every `C:\Users\<YourUsername>`, `<STRATA_HOME>`, and `<YourHostname>` in this repository is a placeholder, not a runnable value.
+> Every `C:\Users\YOUR_USERNAME`, `STRATA_HOME`, and `YOUR_HOSTNAME` in this repository is a placeholder, not a runnable value.
 > All configuration snippets are **excerpts**. Merge them into your own config files; do not overwrite whole files.
 
 ---
@@ -39,7 +39,7 @@ This repository is a complete answer to all four, plus a watchdog script that **
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  DSH Desktop (GUI)                                                    │
-│  http://127.0.0.1:<random port>   changes on every restart            │
+│  http://127.0.0.1:RANDOM_PORT   changes on every restart              │
 │                                                                       │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  Agent preset layer                                              │  │
@@ -57,7 +57,7 @@ This repository is a complete answer to all four, plus a watchdog script that **
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  bili (billion-context)   admin endpoint 127.0.0.1:18788        │  │
 │  │  · Compression: maxContextLimit = 90% (fires at ~118K of 131072)│  │
-│  │  · Model window: models.<id>.context = 131072                   │  │
+│  │  · Model window: models.MODEL_ID.context = 131072               │  │
 │  │  · Context inspection / folding / injection-block management    │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
@@ -257,7 +257,7 @@ Fix: run `start-proxy.vbs` once. This is exactly what `guard-proxy.vbs` exists t
 
 ### Pitfall 8: The bili admin endpoint is not on the DSH port
 
-`curl http://127.0.0.1:<DSH port>/__bili/config` → `{"error":"admin relay disabled"}` (`security.adminRelay` defaults to off).
+`curl http://127.0.0.1:DSH_PORT/__bili/config` → `{"error":"admin relay disabled"}` (`security.adminRelay` defaults to off).
 The correct address is **18788**: `curl http://127.0.0.1:18788/__bili/config`.
 
 ### Pitfall 9: `findstr` exit codes are unreliable for port checks in VBS
@@ -310,8 +310,8 @@ Based on bili's actual `[acp-usage] input=`:
 ## Deployment
 
 1. **Install the plugins**: copy `plugins/maid-local-lite` and `plugins/maid-local-memory` into your DSH workspace, point at them with `link:` in the profile's `package.json`, and add both package names to `dsh.bundle`.
-2. **Merge the config**: merge the `llm-pi-ai` and `meow-memory` blocks from `config/cordis.patch.example.yml` into your own `~/.dsh/profiles/<profile>/cordis.patch.yml`; merge `config/billion-context.example.json` into `~/.config/billion-context/billion-context.json`.
-3. **Fix the paths**: replace `<STRATA_HOME>` in the three files under `proxy/` with your actual install path.
+2. **Merge the config**: merge the `llm-pi-ai` and `meow-memory` blocks from `config/cordis.patch.example.yml` into your own `~/.dsh/profiles/PROFILE/cordis.patch.yml`; merge `config/billion-context.example.json` into `~/.config/billion-context/billion-context.json`.
+3. **Fix the paths**: replace `STRATA_HOME` in the three files under `proxy/` with your actual install path.
 4. **Start the proxy**: double-click it or run `wscript.exe proxy/start-proxy.vbs`, then confirm 8090 is listening.
 5. **Install the watchdog**: drop a shortcut to `guard-proxy.vbs` into `shell:startup` (target `wscript.exe`, argument is the full vbs path, working directory set to the proxy folder, window minimized).
 6. **Restart DSH** and pick `maid-local-memory` for a new session.
