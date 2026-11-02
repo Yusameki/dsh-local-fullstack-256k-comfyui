@@ -266,6 +266,58 @@ The nested quotes in `cmd /c "... | findstr ... >nul && exit 0 || exit 1"` get s
 
 ---
 
+## Case study: retiring the legacy Ollama stack
+
+Before this stack existed, the machine ran a 9B model on Ollama as an emergency fallback. Once the 128K Strata pipeline took over, every byte of it became dead weight. Here is the whole teardown, because "delete the old thing" is never as simple as it sounds.
+
+**19.48 GiB reclaimed.** The assets were not where you would expect:
+
+| Location | Size | What it was |
+|---|---|---|
+| `~/.ollama` | 7.44 GiB | 3 tags, all sharing one 7.36 GB weight blob + 624 MB mmproj |
+| `<DSH_HOME>/our-free-model/_deploy` | 8.98 GiB | A **second copy** of the same GGUF (not a hardlink) + 1.6 GB installer |
+| `%LOCALAPPDATA%/Programs/Ollama` | 3.06 GiB | The application itself |
+
+The `_deploy` copy is the one that hides. It came from a manual `ollama create`, and because it is a plain copy rather than a hardlink, deleting the Ollama models alone would have left 7.5 GiB behind.
+
+**The dependency check comes first.** Before deleting anything, verify nothing still points at the port:
+
+```bash
+grep -rn "11434" ~/.dsh/profiles/*/cordis.patch.yml
+curl -s http://127.0.0.1:18788/__bili/config | grep 11434
+```
+
+In this case the DSH profile was clean, but two layers still referenced it: `our-free-model`'s `settings.json` (an `aggregate.providers.ollama` entry plus a fallback combo that made the 9B show up in the model catalog) and bili's config (three routes for `localhost`, `127.0.0.1`, and `mitm://`). **Clearing the files but leaving the routes would have kept the model visible in the picker and kept bili trying to compress against a window that no longer exists.**
+
+**Teardown order** — `tools/cleanup-ollama-9b.py` automates this:
+
+```
+--backup   →  *.bak-<timestamp> for every file about to change
+--config   →  drop the aggregate provider, the fallback combo, the 11434 routes
+--stop     →  kill processes, run the uninstaller silently
+--path     →  remove the PATH entry, the Startup shortcut, any OLLAMA_* vars
+--archive  →  move one-off patch dirs and debug scripts out of the workspace
+--purge    →  rmtree the caches (requires typing PURGE)
+```
+
+Two rules the script enforces that are worth stealing:
+
+1. **It refuses to write the bili config if the 8090 provider has vanished.** A cleanup script that quietly deletes your production route is worse than no script.
+2. **`--purge` demands the word `PURGE`.** Everything else runs from flags; the irreversible step does not.
+
+**Verification after teardown:**
+
+```bash
+curl -s http://127.0.0.1:18788/__bili/config    # expect exactly 2 providers, 8090 with context 131072
+ls ~/.ollama ~/.dsh/our-free-model/_deploy      # both gone
+```
+
+Note that `settings.json` for `our-free-model` is **not** hot-reloaded — the plugin reads it at apply time. If the 9B still appears in the model catalog after teardown, restart DSH once. bili *is* hot-reloaded: `POST http://127.0.0.1:18788/__bili/config/reload`.
+
+**One thing deliberately left alone:** the `ofm-effort-menu-patch` directory was archived, but the patch inside it was **not** rolled back. It had already been applied to the plugin source and is harmless on its own; reverting it would have introduced a fresh variable into a system that was working. Archive the tooling, keep the running state.
+
+---
+
 ## Real usage red lines
 
 Based on bili's actual `[acp-usage] input=`:
@@ -299,10 +351,12 @@ Based on bili's actual `[acp-usage] input=`:
 │       ├── package.json
 │       ├── cordis.patch.yml
 │       └── lib/index.js
-└── proxy/
-    ├── strata-on-demand-proxy.py      8090 lazy-loading proxy (stdlib only)
-    ├── start-proxy.vbs                Silent launcher (pythonw, no console)
-    └── guard-proxy.vbs                Watchdog (probes 8090 only)
+├── proxy/
+│   ├── strata-on-demand-proxy.py      8090 lazy-loading proxy (stdlib only)
+│   ├── start-proxy.vbs                Silent launcher (pythonw, no console)
+│   └── guard-proxy.vbs                Watchdog (probes 8090 only)
+└── tools/
+    └── cleanup-ollama-9b.py           Teardown for a legacy Ollama fallback (dry-run by default)
 ```
 
 ---

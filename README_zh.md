@@ -258,6 +258,58 @@ conversation cache off: not enough free RAM
 
 ---
 
+## 案例：退役旧的 Ollama 链路
+
+在这套栈搭起来之前，机器上跑着一个 Ollama 9B 当应急兜底。128K 的 Strata 链路接管之后，它每一字节都是纯浪费。下面是完整拆除过程——「删掉旧东西」从来不像听起来那么简单。
+
+**回收 19.48 GiB。** 这些资产并不都在你以为的地方：
+
+| 位置 | 大小 | 是什么 |
+|---|---|---|
+| `~/.ollama` | 7.44 GiB | 3 个 tag，共用同一份 7.36 GB 权重 blob + 624 MB mmproj |
+| `<DSH_HOME>/our-free-model/_deploy` | 8.98 GiB | 同一份 GGUF 的**第二份拷贝**（不是硬链接）+ 1.6 GB 安装包 |
+| `%LOCALAPPDATA%/Programs/Ollama` | 3.06 GiB | 程序本体 |
+
+`_deploy` 那份最容易漏。它是手工 `ollama create` 时留下的，因为只是普通拷贝而非硬链接，光删 Ollama 模型会留下 7.5 GiB 的孤儿文件。
+
+**先查依赖，再动手。** 删之前先确认没人还在指着那个端口：
+
+```bash
+grep -rn "11434" ~/.dsh/profiles/*/cordis.patch.yml
+curl -s http://127.0.0.1:18788/__bili/config | grep 11434
+```
+
+这次 DSH profile 是干净的，但还有两层在引用：`our-free-model` 的 `settings.json`（一个 `aggregate.providers.ollama` 条目，外加一个把 9B 拉进模型目录的兜底 combo），以及 bili 配置（`localhost`、`127.0.0.1`、`mitm://` 三条路由）。**只清文件不清路由的话，模型会继续在选单里挂着，bili 也会继续拿一个已经不存在的窗口去做压缩判断。**
+
+**拆除顺序**——`tools/cleanup-ollama-9b.py` 把它自动化了：
+
+```
+--backup   →  每个要改的文件先存 *.bak-<时间戳>
+--config   →  删 aggregate provider、兜底 combo、11434 三条路由
+--stop     →  结束进程，静默跑卸载器
+--path     →  清 PATH 条目、启动目录快捷方式、OLLAMA_* 环境变量
+--archive  →  把一次性补丁目录和调试脚本挪出工作区
+--purge    →  rmtree 缓存目录（需要手输 PURGE）
+```
+
+脚本里有两条值得抄走的规则：
+
+1. **写回 bili 配置前，如果发现 8090 provider 不见了就直接中止。** 一个会悄悄删掉你生产路由的清理脚本，比没有脚本更糟。
+2. **`--purge` 必须手输 `PURGE`。** 其它步骤都是命令行开关，不可逆的那一步不是。
+
+**拆除后验证：**
+
+```bash
+curl -s http://127.0.0.1:18788/__bili/config    # 应该只剩 2 个 provider，8090 的 context 是 131072
+ls ~/.ollama ~/.dsh/our-free-model/_deploy      # 两个都应该没了
+```
+
+注意 `our-free-model` 的 `settings.json` **不会热重载**——插件在 apply 时读一次。如果拆完 9B 还在模型目录里，重启一次 DSH。bili 是会热重载的：`POST http://127.0.0.1:18788/__bili/config/reload`。
+
+**有一件事是故意不动的：** `ofm-effort-menu-patch` 目录归档了，但里面的补丁**没有回滚**。它早就应用进插件源码了，本身无害；回滚等于往一个正常工作的系统里塞一个新变量。归档工具，保留运行态。
+
+---
+
 ## 真实用量红线
 
 以 bili 实测 `[acp-usage] input=` 为准：
@@ -291,10 +343,12 @@ conversation cache off: not enough free RAM
 │       ├── package.json
 │       ├── cordis.patch.yml
 │       └── lib/index.js
-└── proxy/
-    ├── strata-on-demand-proxy.py      8090 懒加载代理（纯标准库）
-    ├── start-proxy.vbs                静默启动器（pythonw，无控制台）
-    └── guard-proxy.vbs                守护脚本（只探 8090）
+├── proxy/
+│   ├── strata-on-demand-proxy.py      8090 懒加载代理（纯标准库）
+│   ├── start-proxy.vbs                静默启动器（pythonw，无控制台）
+│   └── guard-proxy.vbs                守护脚本（只探 8090）
+└── tools/
+    └── cleanup-ollama-9b.py           旧 Ollama 兜底链路的拆除脚本（默认 dry-run）
 ```
 
 ---
