@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# DSH profile patch — the two lines that matter for this project.
+#
+# This is a TRIMMED excerpt of a real ~/.dsh/profiles/<profile>/cordis.patch.yml.
+# A real file has ~15 top-level entries (ui-*, web, session-log, image-gen, ...);
+# only the ones this project touches are kept here. Do NOT paste this whole file
+# over your own — merge the `llm-pi-ai` block and the `meow-memory` block into
+# yours instead.
+# ---------------------------------------------------------------------------
+
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: strata-local
+    model: qwen3.8-flash-next-gyro-gyro-s
+
+# The local memory plugin. `reflectTurns: 15` (default is 7) makes the automatic
+# reflection turn fire less often — a local model doing long tasks gets
+# interrupted too easily at 7.
+- id: meow-memory
+  name: dsh-maid-preset/meow
+  config:
+    promptLang: zh
+    reflectTurns: 15
+    delegate:
+      model: ""
+    dream:
+      enabled: false
+
+# The provider entry. baseURL points at the on-demand proxy (8090), NOT at the
+# engine (8081) — that indirection is what lets the engine stay unloaded.
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      strata-local:
+        displayName: Strata Local
+        api: openai-completions
+        baseURL: http://127.0.0.1:8090/v1
+        headers:
+          # The proxy does not authenticate. Put your real key here if yours does.
+          Authorization: Bearer none
+        defaultContextWindow: 131072
+        defaultMaxTokens: 8192
+        models:
+          - id: qwen3.8-flash-next-gyro-gyro-s
+            name: Qwen3.8-Flash-Next (Gyro-S)
+            contextWindow: 131072
+            maxTokens: 8192
+            input:
+              - text
+              - image
+            reasoningEfforts: false

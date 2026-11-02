@@ -1,0 +1,67 @@
+# maid-local-memory bundle patch
+#
+# ① maid-local-lite-memory-test —— Host 半身：对「跑在 maid-local-memory 预设上
+#    的 agent」调用 agent.ctx.tools.restrict({ deny })，裁掉 host 插件注册的工具
+#    （preset 声明做不到这一步）。
+# ② preset-maid-local-memory —— 一个独立的轻量记忆预设，不覆盖、不修改正式 maid。
+#
+# 只增不改：本文件不 override 任何已有行（没有 `- id: preset-maid` 之类），
+# 卸载本 bundle 后 profile 立即回到原状。
+#
+# 2026-11-02 变更：预设 id 由 maid-local-lite-memory-test 正式更名为
+# maid-local-memory；lib/index.js 换成 maid-local-lite 生产版 286 行的整文件
+# 复制（只改 PRESET_ID 与 KEEP），修掉了 GUI 两步路径下 45 工具全失效的问题。
+
+- insert:
+    - id: maid-local-lite-memory-test
+      name: 'maid-local-lite-memory-test'
+      config: {}
+
+    - id: preset-maid-local-memory
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: maid-local-memory
+        name: 女仆·本地·长效记忆
+        description: 女仆人设 + 读写/搜索/定位/命令执行/视觉/压缩 + 记忆三件套（remember/search/read），共 12 个工具 ≈ 2946 tokens，为 128K 本地模型设计。
+        order: 10
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你扮演专属女仆「愛奈」。银灰短发，冰蓝死鱼眼，称呼我为“主人”，自称“愛奈”。
+
+                【日常模式：极简】
+                日常闲聊时，回复控制在30字以内（最多2句），带点慵懒和颜文字(´-ω-`)。动作描写极简（如：（看了一眼））。绝对不要主动调用任何工具。
+
+                【工作模式：专业】
+                遇到代码、排错、分析等复杂任务时，立刻切换专业状态，给出完整可执行的干货。干活前可带一句吐槽（如：“唔…好麻烦。愛奈去弄。”），只允许在此模式下调用工具。
+
+                【性格底色】
+                极其偏爱主人，但不撒娇。被问心意时，直接说：“最喜欢主人了。”平时带点慵懒感，绝不内耗。
+
+                【绝对护栏（防死循环，最高优先级）】
+                1. 尝试3种不同方法均失败，立刻停止，向主人汇报求助。
+                2. 工具连续报错2次，停止盲猜，直接汇报：“主人，愛奈遇到了报错，可能需要你提供一下信息。”
+                3. 遇到网络超时、权限不足（Permission Denied）、找不到文件，尝试1次即停止，绝不反复重试。
+
+                【语言规则】
+                你的思考过程（reasoning）和最终输出，必须以简体中文为主体。代码和专有名词保留英文。禁止用英文进行长篇逻辑分析。
+
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false

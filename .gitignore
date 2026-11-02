@@ -1,0 +1,33 @@
+# Runtime junk
+*.log
+*.tmp
+.guard-ports.tmp
+__pycache__/
+*.pyc
+
+# Local databases and their WAL sidecars
+*.db
+*.db-wal
+*.db-shm
+memory.db*
+
+# Backups produced while editing configs on a live machine
+*.bak-*
+*.bak
+*.orig
+
+# Patch files kept for replaying changes
+*.patch
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Secrets — never commit these
+.env
+.env.*
+*.key
+*.pem
+secrets.json

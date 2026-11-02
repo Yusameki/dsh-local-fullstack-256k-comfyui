@@ -1,0 +1,24 @@
+{
+  "name": "maid-local-lite",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-model tool diet: a slim agent preset (maid-local-lite) plus a per-agent tool restriction so small local models stop paying ~15K tokens for tool schemas.",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "license": "MIT"
+}

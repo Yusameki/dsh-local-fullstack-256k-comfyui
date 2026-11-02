@@ -1,0 +1,31 @@
+{
+  "compress": {
+    "reasoning": {
+      "drop": false
+    }
+  },
+  "diagnostics": {
+    "dumpBody": false,
+    "dumpReq": false,
+    "dump4xx": false
+  },
+  "providers": {
+    "http://127.0.0.1:8090": {
+      "compress": {
+        "maxContextLimit": "90%",
+        "emergencyThresholdPercent": "85%",
+        "nudgeGrowthTokens": 4000,
+        "minPressureBenefitTokens": 1500,
+        "minCompressRangeChars": 1500,
+        "preserveRecentTokens": 3000
+      },
+      "models": {
+        "qwen3.8-flash-next-gyro-gyro-s": {
+          "context": 131072,
+          "output": 8192
+        }
+      }
+    }
+  },
+  "upstreamProxyMode": "auto"
+}
