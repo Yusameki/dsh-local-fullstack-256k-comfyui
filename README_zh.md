@@ -1,14 +1,27 @@
 <div align="center">
 
-# DSH Local FullStack · 128K
+# DSH Local FullStack · 256K + ComfyUI
 
 [English](README.md) | **简体中文**
 
-**把一台 32GB 内存 + 12GB 显存的消费级机器，调成「128K 上下文 + 2.1K 工具开销 + 长效记忆 + 引擎按需起停」的本地 Agent 工作站**
+**把一台 64GB 内存 + 12GB 显存的消费级机器，调成「256K 上下文 + 2.1K 工具开销 + 长效记忆 + 引擎按需起停 + ComfyUI 生图分时复用」的本地 Agent 工作站**
 
-`DeepSeek Harness` · `Strata` · `billion-context` · `Qwen3.8-Flash-Next`
+`DeepSeek Harness` · `Strata` · `billion-context` · `Qwen3.8-Flash-Next` · `ComfyUI`
 
 </div>
+
+---
+
+> [!IMPORTANT]
+> ## 🔴 显存分时复用红线
+>
+> **日常轻量共存，硬核长文切独占。**
+>
+> - 查文档、写提示词、联合调试 → **两个都开着**。decode 从 68.2 掉到 54.3 tok/s，够用。
+> - 超长代码库 / 几十万字文档（> 1 万 token）→ **必须先手动关掉 ComfyUI 进程**，才拿得到全部 1394 个 expert cache slots。
+> - **`POST /free` 不够。** 它只释放模型权重（实测 8435 → 1811 MiB），剩下约 1.8 GB 的 CUDA context 只要进程活着就释放不掉。
+>
+> 同一段 ≈3.2 万 token 的 prompt 实测：expert cache **1394 → 894（−35.9%）**、prefill **20,299 → 37,780 ms（+86%）**、decode 68.2 → 54.3 tok/s。**无 OOM 无告警**——引擎自己缩容了。完整数据见 [`docs/64g-256k-comfyui-workstation.md`](docs/64g-256k-comfyui-workstation.md)。
 
 ---
 
@@ -16,6 +29,7 @@
 > **本项目包含本地绝对路径、端口与模型名配置。部署前请根据实际环境修改。**
 > 归档里的 `C:\Users\YOUR_USERNAME`、`STRATA_HOME`、`YOUR_HOSTNAME` 都是占位符，不是可直接运行的值。
 > 所有配置片段都是**摘录**，请合并进你自己的配置文件，不要整文件覆盖。
+
 
 ---
 
@@ -55,8 +69,9 @@
 │                              ▼                                        │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  bili (billion-context)   管理端点 127.0.0.1:18788              │  │
-│  │  · 上下文压缩：maxContextLimit = 90%（131072 × 0.9 ≈ 118K 才动手）│  │
-│  │  · 模型窗口：models.MODEL_ID.context = 131072                   │  │
+│  │  上下文压缩：maxContextLimit = 90%（262144 × 0.9 ≈ 236K 才动手）  │  │
+│  │  · 模型窗口：models.MODEL_ID.context = 262144                   │  │
+│  │  · 输出上限：models.MODEL_ID.output = 16384                     │  │
 │  │  · 上下文观测 / 折叠 / 注入块管理                                 │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
@@ -73,38 +88,69 @@
                                │ http://127.0.0.1:8081
                                ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│  Strata Engine  gyro-s-128k                                          │
-│  args: --max-context 131072 --kv int8 --kv-resident 32768            │
-│        --resident-experts --vision --vram-reserve-mib 1728           │
+│  Strata Engine  gyro-m-256k                                          │
+│  args: --max-context 262144 --kv int8 --kv-resident 32768            │
+│        --spec 4 --vision --vram-reserve-mib 1728                     │
 │                                                                       │
-│  模型：Qwen3.8-Flash-Next-Gyro-S  Q4 量化  58 GB                      │
-│  显存：12GB 卡加载后仅剩约 1GB                                        │
-│  内存：专家常驻受 Windows commit limit（35.3 GiB）压制                │
+│  模型：Qwen3.8-Flash-Next-Gyro-M（abliterated）  92 GB                │
+│  常驻：29.88 GiB 权重 + 3.09 GiB KV pinned RAM                       │
+│  expert cache：1394 slots / 1.70 GiB（reserve 1728）                 │
+│  冷启动：29~42 秒  ·  prefill 1417~1590 tok/s                        │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│  ComfyUI  :8188   （并行运行，显存分时复用）                          │
+│  · 模型库经 junction 指向第二块 PCIe 4.0 盘                          │
+│  · 出图时占约 8 GB；POST /free 释放权重                               │
+│  · 约 1.8 GB CUDA context 要等进程退出才释放                          │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 **关键点：控制面与数据面彻底解耦。**
+
+**第二个关键点：显存是分时复用，不是互相争抢。** ComfyUI 和引擎能在 12 GB 卡上共存——引擎会自动把 expert cache 从 1394 缩到 894，prefill 慢 86%。轻量任务这个代价可以接受；长上下文任务就停掉其中一个。
 守护脚本只管 8090（代理进程），永远不碰 8081（引擎）。引擎该起来时由代理按请求拉起，该走时由代理按闲置计时卸载。谁都不能为了「保持在线」把引擎钉在显存里。
 
 ---
 
-## 四根支柱
+## 五根支柱
 
-### 一、128K 上下文
+### 一、256K 上下文
+
+这套栈从 128K 起家，现已抬到 262144。当前配置实际长这样：
 
 | 层 | 位置 | 值 |
 |---|---|---|
-| 引擎 | `proxy/strata-on-demand-proxy.py` 的 `STRATA_LAUNCH_ARGS` | `"--context", "128k"` |
-| 引擎 profile | `%LOCALAPPDATA%\Strata\launch\gyro-s-128k.json` | `--max-context 131072` |
-| DSH | `cordis.patch.yml` 的 `llm-pi-ai` | `defaultContextWindow: 131072` / `contextWindow: 131072` |
-| bili | `billion-context.json` | `context: 131072`, `output: 8192` |
+| 引擎 | `proxy/strata-on-demand-proxy.py` 的 `STRATA_LAUNCH_ARGS` | `"--context", "256k"` |
+| 引擎 profile | `%LOCALAPPDATA%\Strata\launch\gyro-m-256k.json` | `--max-context 262144` |
+| DSH | `cordis.patch.yml` 的 `llm-pi-ai` | `defaultContextWindow: 262144` / `contextWindow: 262144` |
+| bili | `billion-context.json` | `context: 262144`, `output: 16384` |
 | bili 压缩阈值 | 同上 | `maxContextLimit: "90%"` |
 
-- `maxTokens` / `output` 全程保持 **8192**，没跟着放大 —— 输出侧不需要那么多。
-- 改 `--context` 会让 Strata 新建一个 profile 文件（`gyro-s-32k` → `gyro-s-128k`），旧文件留着可回滚。
 - **改参数的顺序有坑**：必须先停引擎，再停代理进程，再改文件。代理探活到旧实例会直接复用，光改文件不生效。
+- 改 `--context` 会让 Strata 新建一个 profile 文件（`gyro-m-256k`），旧的留着可回滚。
+- 实用天花板是 **253952 = 262144 − 8192**（窗口减去输出预留），不是 262144。
 
-#### 再往上：256K
+#### commit limit 才是真天花板
+
+模型要 29.88 GiB 常驻权重 + 3.09 GiB pinned KV。64 GB 内存配默认 pagefile（≈4 GB）时 commit limit 只有 67.91 GiB，加载到一半就死，退出码 `0xC0000409`——看起来像栈溢出，其实是 commit 耗尽。
+
+修法：**把 pagefile 固定成 32768 MB**（系统属性 → 高级 → 性能设置 → 高级 → 虚拟内存 → 自定义大小，初始和最大值都填 32768，重启）。commit limit 抬到 **95.91 GiB**，引擎日志会打印：
+
+```
+strata serve: Windows commit: 35.4 GiB left of a 95.9 GiB limit (RAM + page file)
+```
+
+#### `--vram-reserve-mib` 与 expert cache 是反比
+
+| `--vram-reserve-mib` | expert cache | 加载后剩余 VRAM | verify window |
+|---|---|---|---|
+| **1728（推荐）** | **1394 slots / 1.70 GiB** | 1217 MiB | **1123~1213 MiB**，无告警 |
+| 700（默认） | 2220 slots / 2.70 GiB | 387 MiB | 346 MiB → `WARNING ... (#2065)` |
+
+reserve 越大，cache 拿到越少。引擎源码原话（`serve/server.py:8237`）：`the expert cache gets {...} GB less, a few % of speed`。1728 用 1.0 GiB 的 cache 换了 3 倍以上的 verify 余量，在 12 GB 卡上是正确取舍。
+
+#### 再往上：256K 的完整数据
 
 同一套栈把 pagefile 固定到 32 GB、启动参数抬上去，就能跑 262144。参考机器实测：**251,813 token 冷 prefill 184 秒（1368 tok/s），decode 63.7 tok/s，`finish_reason: stop`，无 OOM**，三根检索探针全中——包括埋在正文 97% 位置那根。
 
@@ -182,8 +228,8 @@ GUI 新建会话是两步 —— 先 `session/create`（默认 preset 是 maid�
 DSH 发请求
    ↓
 8090 代理：引擎没跑？
-   ├─ 是 → detached 拉起 strata launch（profile gyro-s-128k）
-   │       → 等就绪（上限 240s），期间向客户端吐 SSE 注释保活
+   ├─ 是 → detached 拉起 strata launch（profile gyro-m-256k）
+   │       → 等就绪（上限 1200s），期间向客户端吐 SSE 注释保活
    └─ 否 → 直接转发
    ↓
 8081 引擎处理
@@ -206,6 +252,26 @@ idle_watcher 每 30s 检查：闲置 ≥ 900s？
 | 发消息后 | 引擎按需冷启动，13 工具 / 2982 tokens 正常 |
 | 闲置后 | 约 16 分钟（900s 阈值 + 30s 检查间隔）卸载 |
 | 卸载后 | `strata status` → `{"running": []}`，显存回到 **997 MiB / 12288 MiB** |
+
+### 五、ComfyUI 同卡共存
+
+生图后端（ComfyUI，8188）跑在同一张 12 GB 卡上。靠两个设计才立得住：
+
+**模型库搬迁。** 66 GB 模型压在系统盘是浪费。用 `robocopy /E /MT:4` 复制到第二块 PCIe 4.0 盘（2 分 17 秒，690 MB/s），源目录改名 `models.old` 留作回滚点，原位建 **junction**（`mklink /J`）。junction 是文件系统层重定向，任何插件、任何 `os.walk`、任何字符串拼接都看不出区别——这一点是 `extra_model_paths.yaml` 做不到的，它只改 folder 注册表，漏掉 6 处直接拼接 `folder_paths.models_dir` 的代码。
+
+> [!CAUTION]
+> **用 junction 有两条红线。** 不能 `rm -rf` / `shutil.rmtree` 删 junction——它会顺着链接把**目标盘的真身数据**删掉；不能对 junction 源路径跑 `robocopy /MIR`——镜像语义会反向把目标盘写空。删 junction 只能用 `rmdir`（不带 `/s`）或 `Remove-Item`（不带 `-Recurse`）。
+
+**显存分时复用。** `/free` 能释放模型权重（实测 8435 → 1811 MiB），但约 1.8 GB 的 CUDA context 要等进程退出才释放。所以：
+
+| 任务 | 做法 |
+|---|---|
+| 短问短答、写提示词、联合调试 | **两个都开着**。decode 从 68.2 掉到 54.3 tok/s |
+| 长上下文（> 1 万 token） | **先关掉 ComfyUI**，拿回全部 1394 个 cache slots |
+
+同一段 ≈3.2 万 token 的 prompt，共存的代价是：prefill **20,299 → 37,780 ms（+86%）**，expert cache 1394 → 894。无 OOM——引擎自己缩容了。完整数据见 [`docs/64g-256k-comfyui-workstation.md`](docs/64g-256k-comfyui-workstation.md)。
+
+另外注意 `/free` **不是同步的**：它只在 prompt 队列上设个 flag，由主循环下一轮才执行（`main.py:401-408`）。任何辅助脚本都必须轮询 `nvidia-smi`，不能发完就宣布"已释放"。
 
 ---
 
@@ -251,7 +317,9 @@ about 121.3 GB read from the drive per 32768-token prompt
 conversation cache off: not enough free RAM
 ```
 
-32GB 物理内存 + 默认页面文件 → commit limit 只有 35.3 GiB。想跑得更从容要加内存或加大页面文件，不是改代码。
+这是 32 GB 物理内存 + 默认页面文件（commit limit 35.3 GiB）时留下的记录。**现已升级到 64 GB + 固定 32768 MB pagefile，commit limit 95.91 GiB，同样的日志行变成 `35.4 GiB left of a 95.9 GiB limit`，256K 不再撞这条线。**
+
+结论依然成立：想跑得更从容要加内存或加大页面文件，不是改代码。加载中途死掉、退出码 `0xC0000409` 时，先查 commit limit，别去怀疑栈溢出。
 
 ### 坑 6：`engine_usable: false` 是假警报
 
@@ -334,7 +402,10 @@ ls ~/.ollama ~/.dsh/our-free-model/_deploy      # 两个都应该没了
 | < 5 万汉字 | < 4 万 | 极速 |
 | 5–8 万汉字 | 4–8 万 | 正常 |
 | 8–11 万汉字 | 8–11 万 | 变慢 |
-| **> 12 万 token（约 25 万汉字）** | **撞墙** | 触发压缩 → 超时 → 400 |
+| **< 20 万汉字** | **< 24.5 万** | **256K 下可用** —— 实测 251,813 token 冷 prefill 184 秒 |
+| **> 24.5 万 token** | **撞墙** | 报 **400**，不是 413 |
+
+「12 万 token 撞墙」那条属于 128K 时代。262144 下的实用天花板是 **253952 = 262144 − 8192**。
 
 ---
 
@@ -344,12 +415,15 @@ ls ~/.ollama ~/.dsh/our-free-model/_deploy      # 两个都应该没了
 .
 ├── README.md
 ├── README_zh.md                        简体中文版
+├── ARCHITECTURE.md                     层间关系、硬件画像、显存/内存预算、盘位分配
 ├── AGENTS.md                          工作区记忆写入规则（配合三件套记忆工具）
 ├── .gitignore
 ├── config/
 │   ├── cordis.patch.example.yml       DSH profile 配置摘录（模型 + meow-memory）
 │   └── billion-context.example.json   bili 压缩阈值与模型窗口
 ├── docs/
+│   ├── 64g-256k-comfyui-workstation.md       64G + 256K + ComfyUI 终极工作站（中）
+│   ├── 64g-256k-comfyui-workstation.en.md    same report, English
 │   ├── gyro-m-256k-benchmark.md       256K 长上下文实测报告（简体中文）
 │   └── gyro-m-256k-benchmark.en.md    same report, English
 ├── plugins/
@@ -396,6 +470,9 @@ ls ~/.ollama ~/.dsh/our-free-model/_deploy      # 两个都应该没了
 | 长文 N=4200 | bili input 145986，400 撞窗 |
 | **256K 冷 prefill（251,813 tok）** | **184 秒 / 1368 tok/s，decode 63.7 tok/s，`finish_reason: stop`，三探针全中，无 OOM** |
 | **256K 峰值内存** | commit 69,045 MiB / limit 98,214 MiB；KV 走 RAM 仅 636.9 MiB（命中 98.57%） |
+| **分层压测 32k / 128k / 256k** | prefill 1589.8 / 1512.5 / 1417.4 tok/s，decode 68.2 / 66.9 / 70.2 tok/s，全部 `finish_reason: stop` |
+| **ComfyUI 模型迁移** | 51 文件 / 65.22 GiB，robocopy 2 分 17 秒 @ 690 MB/s，junction 双向校验通过 |
+| **ComfyUI 与引擎共存** | expert cache 1394 → 894，prefill 20,299 → 37,780 ms，decode 68.2 → 54.3 tok/s，无 OOM |
 
 ---
 
@@ -407,6 +484,6 @@ MIT。配置片段与脚本按原样提供，不保证适配任何特定机器�
 
 <div align="center">
 
-*控制面与数据面分离。代理管代理，引擎管引擎。显存该空着就空着。*
+*控制面与数据面分离。代理管代理，引擎管引擎。显存该空着就空着 —— 两个东西都要跑的时候，就分时复用，不是互相争抢。*
 
 </div>
