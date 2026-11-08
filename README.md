@@ -105,6 +105,21 @@ The watchdog script watches only 8090 (the proxy process) and never touches 8081
 - Changing `--context` makes Strata create a new profile file (`gyro-s-32k` → `gyro-s-128k`); the old file is kept for rollback.
 - **Order matters when changing parameters**: stop the engine first, then stop the proxy process, then edit the files. The proxy probes for an existing instance and will happily reuse a stale one — editing files alone changes nothing.
 
+#### Taking it to 256K
+
+The same stack runs at 262144 once the pagefile is fixed at 32 GB and the launch args are raised. Measured on the reference machine: **251,813-token cold prefill in 184 s (1368 tok/s), 63.7 tok/s decode, `finish_reason: stop`, no OOM**, and all three recall probes recovered — including the one buried at 97% of the text.
+
+| Change | From | To |
+|---|---|---|
+| pagefile | 4 GB (system managed) | **32768 MB fixed** → commit limit 67.91 → 95.91 GiB |
+| `--context` | `128k` | `256k` |
+| `STARTUP_TIMEOUT_SECONDS` | 600 | **1200** (a 92 GB model needs more than 10 min of headroom) |
+| `defaultContextWindow` / `contextWindow` | 131072 | **262144** |
+| bili `context` | 131072 | **262144** |
+| `defaultMaxTokens` / `output` | 8192 | **16384** (only if you actually emit long answers) |
+
+Practical ceiling is **253952 = 262144 − 8192**, not 262144. Full report, resource tables and the four false alarms you will hit: [`docs/gyro-m-256k-benchmark.md`](docs/gyro-m-256k-benchmark.md) ([English](docs/gyro-m-256k-benchmark.en.md)). Reproduce with `tools/stress-longctx.py`.
+
 ### 2. 2.1K tool budget
 
 The default preset ships 65 tools / 15.2K tokens. The slim preset keeps only 10 tools / 2.1K.
@@ -342,6 +357,9 @@ Based on bili's actual `[acp-usage] input=`:
 ├── config/
 │   ├── cordis.patch.example.yml        DSH profile config excerpt (model + meow-memory)
 │   └── billion-context.example.json    bili compression threshold and model window
+├── docs/
+│   ├── gyro-m-256k-benchmark.md        256K long-context benchmark (Simplified Chinese)
+│   └── gyro-m-256k-benchmark.en.md     the same report in English
 ├── plugins/
 │   ├── maid-local-lite/                Slim preset (10 tools)
 │   │   ├── package.json
@@ -356,7 +374,8 @@ Based on bili's actual `[acp-usage] input=`:
 │   ├── start-proxy.vbs                Silent launcher (pythonw, no console)
 │   └── guard-proxy.vbs                Watchdog (probes 8090 only)
 └── tools/
-    └── cleanup-ollama-9b.py           Teardown for a legacy Ollama fallback (dry-run by default)
+    ├── cleanup-ollama-9b.py           Teardown for a legacy Ollama fallback (dry-run by default)
+    └── stress-longctx.py              Tiered long-context stress test (cold prefill, probes, finish_reason)
 ```
 
 ---
@@ -383,6 +402,8 @@ Based on bili's actual `[acp-usage] input=`:
 | Long input N=2500 | bili input 89323, all three canaries correct |
 | Long input N=2300 (after 90% threshold) | bili input 83163, zero preflight, all three canaries correct |
 | Long input N=4200 | bili input 145986, 400 — window exceeded |
+| **256K cold prefill (251,813 tok)** | **184 s / 1368 tok/s, decode 63.7 tok/s, `finish_reason: stop`, all three probes found, no OOM** |
+| **256K peak memory** | commit 69,045 MiB of a 98,214 MiB limit; only 636.9 MiB of KV spilled to RAM (98.57% hit) |
 
 ---
 

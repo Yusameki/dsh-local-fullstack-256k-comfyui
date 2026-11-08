@@ -104,6 +104,21 @@
 - 改 `--context` 会让 Strata 新建一个 profile 文件（`gyro-s-32k` → `gyro-s-128k`），旧文件留着可回滚。
 - **改参数的顺序有坑**：必须先停引擎，再停代理进程，再改文件。代理探活到旧实例会直接复用，光改文件不生效。
 
+#### 再往上：256K
+
+同一套栈把 pagefile 固定到 32 GB、启动参数抬上去，就能跑 262144。参考机器实测：**251,813 token 冷 prefill 184 秒（1368 tok/s），decode 63.7 tok/s，`finish_reason: stop`，无 OOM**，三根检索探针全中——包括埋在正文 97% 位置那根。
+
+| 改动项 | 原值 | 新值 |
+|---|---|---|
+| pagefile | 4 GB（系统托管） | **固定 32768 MB** → commit limit 67.91 → 95.91 GiB |
+| `--context` | `128k` | `256k` |
+| `STARTUP_TIMEOUT_SECONDS` | 600 | **1200**（92 GB 的模型要留够余量） |
+| `defaultContextWindow` / `contextWindow` | 131072 | **262144** |
+| bili `context` | 131072 | **262144** |
+| `defaultMaxTokens` / `output` | 8192 | **16384**（只有真的会吐长答案才需要） |
+
+实用天花板是 **253952 = 262144 − 8192**，不是 262144。完整报告、资源占用表、以及一定会踩到的四类假异常：见 [`docs/gyro-m-256k-benchmark.md`](docs/gyro-m-256k-benchmark.md)。复现脚本 `tools/stress-longctx.py`。
+
 ### 二、工具瘦身 2.1K
 
 默认预设是 65 个工具 / 15.2K tokens。瘦身版只留 10 个 / 2.1K。
@@ -334,6 +349,9 @@ ls ~/.ollama ~/.dsh/our-free-model/_deploy      # 两个都应该没了
 ├── config/
 │   ├── cordis.patch.example.yml       DSH profile 配置摘录（模型 + meow-memory）
 │   └── billion-context.example.json   bili 压缩阈值与模型窗口
+├── docs/
+│   ├── gyro-m-256k-benchmark.md       256K 长上下文实测报告（简体中文）
+│   └── gyro-m-256k-benchmark.en.md    same report, English
 ├── plugins/
 │   ├── maid-local-lite/               瘦身预设（10 工具）
 │   │   ├── package.json
@@ -348,7 +366,8 @@ ls ~/.ollama ~/.dsh/our-free-model/_deploy      # 两个都应该没了
 │   ├── start-proxy.vbs                静默启动器（pythonw，无控制台）
 │   └── guard-proxy.vbs                守护脚本（只探 8090）
 └── tools/
-    └── cleanup-ollama-9b.py           旧 Ollama 兜底链路的拆除脚本（默认 dry-run）
+    ├── cleanup-ollama-9b.py           旧 Ollama 兜底链路的拆除脚本（默认 dry-run）
+    └── stress-longctx.py              长上下文分级压测（冷 prefill / 探针 / finish_reason）
 ```
 
 ---
@@ -375,6 +394,8 @@ ls ~/.ollama ~/.dsh/our-free-model/_deploy      # 两个都应该没了
 | 长文 N=2500 | bili input 89323，三暗号全对 |
 | 长文 N=2300（90% 阈值后） | bili input 83163，零预压缩，三暗号全对 |
 | 长文 N=4200 | bili input 145986，400 撞窗 |
+| **256K 冷 prefill（251,813 tok）** | **184 秒 / 1368 tok/s，decode 63.7 tok/s，`finish_reason: stop`，三探针全中，无 OOM** |
+| **256K 峰值内存** | commit 69,045 MiB / limit 98,214 MiB；KV 走 RAM 仅 636.9 MiB（命中 98.57%） |
 
 ---
 
